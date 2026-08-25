@@ -22,6 +22,11 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- recreated cleanly without repeated CREATE/ALTER errors.
 -- ============================================================
 
+DROP TABLE IF EXISTS family_history CASCADE;
+DROP TABLE IF EXISTS vaccinations CASCADE;
+DROP TABLE IF EXISTS imaging_studies CASCADE;
+DROP TABLE IF EXISTS lab_reports CASCADE;
+DROP TABLE IF EXISTS chronic_conditions CASCADE;
 DROP TABLE IF EXISTS identity_verifications CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
 DROP TABLE IF EXISTS emergency_access CASCADE;
@@ -265,6 +270,80 @@ CREATE TABLE medical_history (
         )
 );
 
+
+
+-- ============================================================
+-- 8. CHRONIC CONDITIONS
+-- ============================================================
+-- Stores long-term/chronic conditions separately so the
+-- frontend can quickly show the patient's current chronic
+-- conditions. medical_history can still store other history.
+-- ============================================================
+
+CREATE TABLE chronic_conditions (
+    chronic_condition_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    patient_id UUID NOT NULL,
+
+    condition_name VARCHAR(255) NOT NULL,
+
+    description TEXT,
+
+    diagnosed_date DATE,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+
+    treating_doctor_id UUID,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_chronic_condition_patient
+        FOREIGN KEY (patient_id)
+        REFERENCES patients(patient_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_chronic_condition_doctor
+        FOREIGN KEY (treating_doctor_id)
+        REFERENCES doctors(doctor_id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE,
+
+    CONSTRAINT chk_chronic_condition_status
+        CHECK (
+            status IN (
+                'ACTIVE',
+                'CONTROLLED',
+                'RESOLVED',
+                'UNKNOWN'
+            )
+        ),
+
+    CONSTRAINT chk_chronic_condition_date
+        CHECK (
+            diagnosed_date IS NULL
+            OR diagnosed_date <= CURRENT_DATE
+        ),
+
+    CONSTRAINT chk_chronic_condition_name
+        CHECK (LENGTH(TRIM(condition_name)) > 0)
+);
+
+CREATE INDEX idx_chronic_conditions_patient
+ON chronic_conditions(patient_id);
+
+CREATE INDEX idx_chronic_conditions_status
+ON chronic_conditions(status);
+
+CREATE INDEX idx_chronic_conditions_doctor
+ON chronic_conditions(treating_doctor_id);
+
+CREATE TRIGGER update_chronic_conditions_updated_at
+BEFORE UPDATE ON chronic_conditions
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================
 -- 8. ALLERGIES
@@ -1073,6 +1152,397 @@ CREATE TRIGGER update_medical_reports_updated_at
 BEFORE UPDATE ON medical_reports
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
+
+
+-- ============================================================
+-- 25. LAB REPORTS
+-- ============================================================
+-- Stores structured information about laboratory reports.
+-- The actual PDF/image is kept in secure file/object storage.
+-- PostgreSQL stores the metadata and secure file reference.
+-- ============================================================
+
+CREATE TABLE lab_reports (
+    lab_report_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    patient_id UUID NOT NULL,
+
+    uploaded_by_doctor UUID,
+
+    session_id UUID,
+
+    report_title VARCHAR(255) NOT NULL,
+
+    test_name VARCHAR(255),
+
+    laboratory_name VARCHAR(255),
+
+    report_date DATE,
+
+    result_summary TEXT,
+
+    file_reference TEXT NOT NULL,
+
+    file_type VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
+
+    file_size_bytes BIGINT,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_lab_report_patient
+        FOREIGN KEY (patient_id)
+        REFERENCES patients(patient_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_lab_report_doctor
+        FOREIGN KEY (uploaded_by_doctor)
+        REFERENCES doctors(doctor_id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_lab_report_session
+        FOREIGN KEY (session_id)
+        REFERENCES consultation_sessions(session_id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE,
+
+    CONSTRAINT chk_lab_report_status
+        CHECK (status IN ('ACTIVE', 'ARCHIVED', 'DELETED')),
+
+    CONSTRAINT chk_lab_report_file_size
+        CHECK (
+            file_size_bytes IS NULL
+            OR file_size_bytes >= 0
+        ),
+
+    CONSTRAINT chk_lab_report_date
+        CHECK (
+            report_date IS NULL
+            OR report_date <= CURRENT_DATE
+        )
+);
+
+CREATE INDEX idx_lab_reports_patient
+ON lab_reports(patient_id);
+
+CREATE INDEX idx_lab_reports_doctor
+ON lab_reports(uploaded_by_doctor);
+
+CREATE INDEX idx_lab_reports_session
+ON lab_reports(session_id);
+
+CREATE INDEX idx_lab_reports_date
+ON lab_reports(report_date);
+
+CREATE TRIGGER update_lab_reports_updated_at
+BEFORE UPDATE ON lab_reports
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+
+-- ============================================================
+-- 26. IMAGING STUDIES
+-- ============================================================
+-- Stores X-ray, ultrasound, CT, MRI and other imaging studies.
+-- The actual image/DICOM/PDF is kept in secure file/object
+-- storage. PostgreSQL stores the secure file reference.
+-- ============================================================
+
+CREATE TABLE imaging_studies (
+    imaging_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    patient_id UUID NOT NULL,
+
+    uploaded_by_doctor UUID,
+
+    session_id UUID,
+
+    imaging_type VARCHAR(30) NOT NULL,
+
+    body_part VARCHAR(255),
+
+    study_title VARCHAR(255) NOT NULL,
+
+    imaging_center VARCHAR(255),
+
+    study_date DATE,
+
+    findings TEXT,
+
+    impression TEXT,
+
+    file_reference TEXT NOT NULL,
+
+    file_type VARCHAR(100),
+
+    file_size_bytes BIGINT,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_imaging_patient
+        FOREIGN KEY (patient_id)
+        REFERENCES patients(patient_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_imaging_doctor
+        FOREIGN KEY (uploaded_by_doctor)
+        REFERENCES doctors(doctor_id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_imaging_session
+        FOREIGN KEY (session_id)
+        REFERENCES consultation_sessions(session_id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE,
+
+    CONSTRAINT chk_imaging_type
+        CHECK (
+            imaging_type IN (
+                'XRAY',
+                'ULTRASOUND',
+                'CT_SCAN',
+                'MRI',
+                'PET_SCAN',
+                'MAMMOGRAM',
+                'OTHER'
+            )
+        ),
+
+    CONSTRAINT chk_imaging_status
+        CHECK (status IN ('ACTIVE', 'ARCHIVED', 'DELETED')),
+
+    CONSTRAINT chk_imaging_file_size
+        CHECK (
+            file_size_bytes IS NULL
+            OR file_size_bytes >= 0
+        ),
+
+    CONSTRAINT chk_imaging_date
+        CHECK (
+            study_date IS NULL
+            OR study_date <= CURRENT_DATE
+        )
+);
+
+CREATE INDEX idx_imaging_patient
+ON imaging_studies(patient_id);
+
+CREATE INDEX idx_imaging_doctor
+ON imaging_studies(uploaded_by_doctor);
+
+CREATE INDEX idx_imaging_session
+ON imaging_studies(session_id);
+
+CREATE INDEX idx_imaging_type
+ON imaging_studies(imaging_type);
+
+CREATE INDEX idx_imaging_date
+ON imaging_studies(study_date);
+
+CREATE TRIGGER update_imaging_studies_updated_at
+BEFORE UPDATE ON imaging_studies
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+
+-- ============================================================
+-- 27. VACCINATIONS
+-- ============================================================
+-- Stores vaccination/immunization history and relevant details.
+-- ============================================================
+
+CREATE TABLE vaccinations (
+    vaccination_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    patient_id UUID NOT NULL,
+
+    vaccine_name VARCHAR(255) NOT NULL,
+
+    vaccine_type VARCHAR(100),
+
+    dose_number INTEGER,
+
+    total_doses INTEGER,
+
+    administration_date DATE NOT NULL,
+
+    next_due_date DATE,
+
+    batch_number VARCHAR(100),
+
+    manufacturer VARCHAR(255),
+
+    administration_site VARCHAR(100),
+
+    administered_by VARCHAR(255),
+
+    hospital_or_clinic VARCHAR(255),
+
+    notes TEXT,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'COMPLETED',
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_vaccination_patient
+        FOREIGN KEY (patient_id)
+        REFERENCES patients(patient_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+
+    CONSTRAINT chk_vaccination_dose
+        CHECK (
+            dose_number IS NULL
+            OR dose_number > 0
+        ),
+
+    CONSTRAINT chk_vaccination_total_doses
+        CHECK (
+            total_doses IS NULL
+            OR total_doses > 0
+        ),
+
+    CONSTRAINT chk_vaccination_dose_order
+        CHECK (
+            dose_number IS NULL
+            OR total_doses IS NULL
+            OR dose_number <= total_doses
+        ),
+
+    CONSTRAINT chk_vaccination_date
+        CHECK (administration_date <= CURRENT_DATE),
+
+    CONSTRAINT chk_vaccination_next_due
+        CHECK (
+            next_due_date IS NULL
+            OR next_due_date >= administration_date
+        ),
+
+    CONSTRAINT chk_vaccination_status
+        CHECK (
+            status IN (
+                'COMPLETED',
+                'PARTIAL',
+                'SCHEDULED',
+                'MISSED',
+                'CANCELLED'
+            )
+        )
+);
+
+CREATE INDEX idx_vaccinations_patient
+ON vaccinations(patient_id);
+
+CREATE INDEX idx_vaccinations_name
+ON vaccinations(vaccine_name);
+
+CREATE INDEX idx_vaccinations_date
+ON vaccinations(administration_date);
+
+CREATE INDEX idx_vaccinations_next_due
+ON vaccinations(next_due_date);
+
+CREATE TRIGGER update_vaccinations_updated_at
+BEFORE UPDATE ON vaccinations
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+
+-- ============================================================
+-- 28. FAMILY MEDICAL HISTORY
+-- ============================================================
+-- Stores family history relevant to hereditary/genetic risk.
+-- This does NOT automatically mean the patient has the condition.
+-- It records the reported family history for clinical review.
+-- ============================================================
+
+CREATE TABLE family_history (
+    family_history_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    patient_id UUID NOT NULL,
+
+    relationship VARCHAR(50) NOT NULL,
+
+    condition_name VARCHAR(255) NOT NULL,
+
+    description TEXT,
+
+    diagnosed_age INTEGER,
+
+    deceased BOOLEAN,
+
+    cause_of_death TEXT,
+
+    genetic_condition BOOLEAN NOT NULL DEFAULT FALSE,
+
+    genetic_test_done BOOLEAN NOT NULL DEFAULT FALSE,
+
+    genetic_test_result TEXT,
+
+    notes TEXT,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_family_history_patient
+        FOREIGN KEY (patient_id)
+        REFERENCES patients(patient_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+
+    CONSTRAINT chk_family_history_age
+        CHECK (
+            diagnosed_age IS NULL
+            OR diagnosed_age >= 0
+        ),
+
+    CONSTRAINT chk_family_history_relationship
+        CHECK (
+            relationship IN (
+                'MOTHER',
+                'FATHER',
+                'SIBLING',
+                'CHILD',
+                'GRANDPARENT',
+                'AUNT',
+                'UNCLE',
+                'COUSIN',
+                'OTHER'
+            )
+        ),
+
+    CONSTRAINT chk_family_history_condition
+        CHECK (LENGTH(TRIM(condition_name)) > 0)
+);
+
+CREATE INDEX idx_family_history_patient
+ON family_history(patient_id);
+
+CREATE INDEX idx_family_history_relationship
+ON family_history(relationship);
+
+CREATE INDEX idx_family_history_genetic
+ON family_history(genetic_condition);
+
+CREATE TRIGGER update_family_history_updated_at
+BEFORE UPDATE ON family_history
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
 
 -- ============================================================
 -- 25. PRESCRIPTIONS
@@ -2227,6 +2697,14 @@ ON identity_verifications(status);
 -- TEST DATA IS NOT INCLUDED IN THIS SCHEMA.
 -- Keep fake patient/doctor/QR/consultation data in a separate test_data.sql file.
 
+-- ============================================================
+-- CURRENT MEDICATIONS
+-- ============================================================
+-- Current medications are already represented by patient_medications.
+-- Use status = 'ACTIVE' for medicines currently being taken.
+-- medication_id points to the medications master table.
+-- ============================================================
+
 -- 53. VERIFICATION UPDATED_AT TRIGGER
 -- ============================================================
 
@@ -2234,3 +2712,22 @@ CREATE TRIGGER update_identity_verifications_updated_at
 BEFORE UPDATE ON identity_verifications
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
+
+SELECT
+    table_schema,
+    table_name
+FROM information_schema.tables
+WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+  AND table_type = 'BASE TABLE'
+ORDER BY table_schema, table_name;
+
+SELECT
+    table_schema,
+    table_name,
+    column_name,
+    data_type,
+    is_nullable,
+    column_default
+FROM information_schema.columns
+WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+ORDER BY table_schema, table_name, ordinal_position;
