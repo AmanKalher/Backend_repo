@@ -73,7 +73,7 @@ export default function PrescriptionPreviewModal({
   }
 
   return (
-    <div className="pdf-preview-backdrop" onClick={onClose}>
+    <div className="pdf-preview-backdrop fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
       <div className="pdf-preview-modal-dialog" onClick={(e) => e.stopPropagation()}>
         {/* 1. Compact Modal Header (Fixed Top) */}
         <header className="pdf-preview-header">

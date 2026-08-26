@@ -165,7 +165,7 @@ export default function FileUpload({
       )}
 
       {errorMessage && (
-        <p className="upload-error-text">⚠️ {errorMessage}</p>
+        <p className="upload-error-text">{errorMessage}</p>
       )}
     </div>
   )

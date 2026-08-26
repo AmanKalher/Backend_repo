@@ -52,6 +52,84 @@ const recordTabs = {
   '/vaccinations': { name: 'Vaccinations' },
 }
 
+
+// ======================================================
+// DIAGNECT AI CLINICAL DECISION SUPPORT SERVICE (FRONTEND INTERFACE)
+// Can be seamlessly replaced with: POST /api/ai/analyze
+// ======================================================
+function analyzePatientContext({ selectedSymptoms = [], patient = {} }) {
+  const lowerSelected = (selectedSymptoms || []).map((s) => s.toLowerCase())
+  const hasRespiratory = lowerSelected.some((s) =>
+    ['cough', 'shortness of breath', 'wheezing', 'chest tightness', 'sore throat', 'nasal congestion'].includes(s)
+  )
+  const hasCardiac = lowerSelected.some((s) =>
+    ['chest pain', 'palpitations', 'dizziness', 'fainting', 'leg swelling'].includes(s)
+  )
+  const hasConstitutional = lowerSelected.some((s) =>
+    ['fever', 'chills', 'fatigue', 'weakness', 'loss of appetite'].includes(s)
+  )
+  const hasGI = lowerSelected.some((s) =>
+    ['nausea', 'vomiting', 'abdominal pain', 'diarrhea', 'constipation'].includes(s)
+  )
+  const hasNeuro = lowerSelected.some((s) =>
+    ['headache', 'confusion', 'numbness', 'seizure'].includes(s)
+  )
+  const hasUrinary = lowerSelected.some((s) =>
+    ['painful urination', 'increased frequency', 'blood in urine', 'flank pain'].includes(s)
+  )
+
+  // Identify Active Red Flags
+  const detectedRedFlags = (selectedSymptoms || []).filter((s) =>
+    ['Chest pain', 'Shortness of breath', 'Fainting', 'Confusion', 'Seizure', 'Blood in urine'].includes(s)
+  )
+
+  // Build Evidence list for "Why this was suggested"
+  const evidenceList = [...(selectedSymptoms || [])]
+  if (patient.chronicConditions && patient.chronicConditions.length > 0) {
+    patient.chronicConditions.forEach((c) => {
+      if (!evidenceList.includes(`Previous ${c.toLowerCase()} history`)) {
+        evidenceList.push(`Previous ${c.toLowerCase()} history`)
+      }
+    })
+  }
+
+  let pattern = 'Multi-system presentation with non-specific symptom cluster'
+  let considerations = 'Correlate clinical findings with patient history and baseline diagnostics. Monitor symptom trajectory and vital signs.'
+
+  if (hasCardiac) {
+    pattern = 'Potential cardiopulmonary or thoracic symptom pattern'
+    considerations = 'Consider evaluating urgent 12-lead ECG, continuous SpO2 monitoring, and targeted cardiopulmonary examination. Maintain vigilance regarding recorded medication allergies.'
+  } else if (hasRespiratory && patient.chronicConditions && patient.chronicConditions.includes('Asthma')) {
+    pattern = 'Respiratory symptoms with possible bronchospasm'
+    considerations = 'Consider evaluating asthma exacerbation versus infectious causes. Review respiratory status, auscultation findings, and peak flow if indicated.'
+  } else if (hasRespiratory) {
+    pattern = 'Acute upper or lower respiratory inflammatory pattern'
+    considerations = 'Evaluate airway patency, chest auscultation for crackles/wheezes, and assess hydration and fever trajectory.'
+  } else if (hasConstitutional) {
+    pattern = 'Systemic infectious / febrile prodrome pattern'
+    considerations = 'Assess temperature curve, hydration status, and consider basic inflammatory markers (CBC/CRP) if symptoms persist beyond expected viral timeframe.'
+  } else if (hasGI) {
+    pattern = 'Gastrointestinal dysregulation / irritation pattern'
+    considerations = 'Assess fluid and electrolyte balance, review current mucosal protective regimen, and rule out infectious or inflammatory etiology.'
+  } else if (hasNeuro) {
+    pattern = 'Neurological / cephalalgic symptom pattern'
+    considerations = 'Perform focal neurological examination, check blood pressure, and assess for meningeal or secondary febrile signs.'
+  } else if (hasUrinary) {
+    pattern = 'Genitourinary / renal irritative pattern'
+    considerations = 'Consider urinalysis with microscopy and culture before initiating empirical antimicrobial therapy.'
+  } else if (selectedSymptoms.length > 0) {
+    pattern = 'Non-specific multi-system symptom cluster'
+    considerations = 'Review chronological progression of findings against baseline clinical records.'
+  }
+
+  return {
+    possiblePattern: pattern,
+    evidence: evidenceList.length > 0 ? evidenceList : ['Selected clinical findings'],
+    redFlags: detectedRedFlags,
+    clinicalConsiderations: considerations,
+  }
+}
+
 export default function PatientRecordPage() {
   const { doctor, logoutDoctor } = useAuth()
   const navigate = useNavigate()
@@ -214,25 +292,25 @@ export default function PatientRecordPage() {
       vaccine: 'COVID-19 Booster (Covaxin)',
       date: '12 Jan 2023',
       dose: 'Dose 3 (Precautionary)',
-      status: 'Completed ✓',
+      status: 'Completed',
     },
     {
       vaccine: 'Influenza Annual Vaccine',
       date: '18 Oct 2025',
       dose: 'Annual Shot',
-      status: 'Completed ✓',
+      status: 'Completed',
     },
     {
       vaccine: 'Hepatitis B Complete Series',
       date: '05 May 2018',
       dose: '3 Doses Complete',
-      status: 'Completed ✓',
+      status: 'Completed',
     },
     {
       vaccine: 'Tetanus Toxoid (TT)',
       date: '14 Mar 2021',
       dose: '0.5ml Booster',
-      status: 'Completed ✓',
+      status: 'Completed',
     },
   ]
 
@@ -335,106 +413,53 @@ export default function PatientRecordPage() {
   }, [selectedSymptoms])
 
   // Structured AI Clinical Guidance Generator for the Sticky Live Assistant
-  const aiClinicalGuidance = useMemo(() => {
-    if (selectedSymptoms.length === 0) {
-      return {
-        condition: 'Awaiting Symptom Selection',
-        interpretation: 'Select patient clinical findings to generate real-time diagnostic synthesis.',
-        recommendation: 'Complete symptom checklist and review longitudinal patient records.',
-      }
+  // AI Clinical Decision Support Workspace State
+  const [aiAnalysisStatus, setAiAnalysisStatus] = useState('empty') // 'empty' | 'loading' | 'result'
+  const [aiLoadingStep, setAiLoadingStep] = useState(0)
+  const [aiAnalysisResult, setAiAnalysisResult] = useState(null)
+
+  const loadingSteps = [
+    'Reviewing selected symptoms',
+    'Checking medical history',
+    'Evaluating medication context',
+    'Generating clinical considerations',
+  ]
+
+  const handleRunAiAnalysis = () => {
+    setAiAnalysisStatus('loading')
+    setAiLoadingStep(0)
+
+    // Progressive loading sequence
+    const t1 = setTimeout(() => setAiLoadingStep(1), 350)
+    const t2 = setTimeout(() => setAiLoadingStep(2), 700)
+    const t3 = setTimeout(() => setAiLoadingStep(3), 1050)
+    const t4 = setTimeout(() => {
+      const result = analyzePatientContext({ selectedSymptoms, patient })
+      setAiAnalysisResult(result)
+      setAiAnalysisStatus('result')
+      showToast('AI clinical considerations updated based on patient context.')
+    }, 1400)
+
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      clearTimeout(t3)
+      clearTimeout(t4)
     }
-
-    const lowerSelected = selectedSymptoms.map((s) => s.toLowerCase())
-    const hasRespiratory = lowerSelected.some((s) => ['cough', 'shortness of breath', 'wheezing', 'chest tightness', 'sore throat', 'nasal congestion'].includes(s))
-    const hasCardiac = lowerSelected.some((s) => ['chest pain', 'palpitations', 'dizziness', 'fainting', 'leg swelling'].includes(s))
-    const hasConstitutional = lowerSelected.some((s) => ['fever', 'chills', 'fatigue', 'weakness', 'loss of appetite'].includes(s))
-    const hasGI = lowerSelected.some((s) => ['nausea', 'vomiting', 'abdominal pain', 'diarrhea', 'constipation'].includes(s))
-    const hasNeuro = lowerSelected.some((s) => ['headache', 'confusion', 'numbness', 'seizure'].includes(s))
-    const hasUrinary = lowerSelected.some((s) => ['painful urination', 'increased frequency', 'blood in urine', 'flank pain'].includes(s))
-
-    if (hasCardiac) {
-      return {
-        condition: 'Potential Cardiopulmonary Process',
-        interpretation: 'Symptoms suggest possible cardiac involvement or ischemic reaction.',
-        recommendation: 'Order urgent 12-lead ECG, SpO2 monitoring, and observe strict Aspirin allergy safeguards.',
-      }
-    }
-
-    if (hasRespiratory && patient.chronicConditions.includes('Asthma')) {
-      return {
-        condition: 'Acute respiratory process with possible bronchospasm',
-        interpretation: 'Symptoms suggest reactive airway involvement on a background of bronchial asthma.',
-        recommendation: 'Evaluate for asthma flare vs infectious causes; assess bronchodilator response and peak flow.',
-      }
-    }
-
-    if (hasRespiratory) {
-      return {
-        condition: 'Acute Upper/Lower Respiratory Tract Infection',
-        interpretation: 'Airway inflammatory signs present with reactive cough and congestion response.',
-        recommendation: 'Perform chest auscultation, assess fever curve, and consider supportive respiratory regimen.',
-      }
-    }
-
-    if (hasConstitutional) {
-      return {
-        condition: 'Systemic Infectious / Inflammatory Response',
-        interpretation: 'Elevated temperature curve and constitutional signs suggest acute viral or systemic prodrome.',
-        recommendation: 'Monitor core temperature, maintain oral hydration, and check CBC/CRP if symptoms persist.',
-      }
-    }
-
-    if (hasGI) {
-      return {
-        condition: 'Gastrointestinal Dysregulation / Flare',
-        interpretation: 'Gastrointestinal complaints present. Continue proton-pump inhibitor mucosal protection.',
-        recommendation: 'Assess hydration and electrolyte balance, and rule out infectious gastroenteritis.',
-      }
-    }
-
-    if (hasNeuro) {
-      return {
-        condition: 'Neurological / Cephalalgic Cluster',
-        interpretation: 'Headache or neurological complaints warrant baseline cranial screening.',
-        recommendation: 'Perform neurological exam, check blood pressure, and assess for secondary febrile signs.',
-      }
-    }
-
-    if (hasUrinary) {
-      return {
-        condition: 'Urinary Tract Infection / Renal Colic',
-        interpretation: 'Urinary complaints suggest lower urinary tract irritation or ascending infection.',
-        recommendation: 'Order urinalysis with microscopy and renal parameter evaluation.',
-      }
-    }
-
-    return {
-      condition: 'Multi-System Clinical Presentation',
-      interpretation: 'Selected findings (' + selectedSymptoms.join(', ') + ') indicate multi-factorial presentation.',
-      recommendation: 'Synthesize physical exam findings with historical diagnostic records.',
-    }
-  }, [selectedSymptoms, patient.chronicConditions])
-
-  const handleTriggerSidebarAiReanalyze = () => {
-    setIsSidebarAiLoading(true)
-    setTimeout(() => {
-      setIsSidebarAiLoading(false)
-      showToast('⚡ AI clinical suggestions updated based on selected findings.')
-    }, 600)
   }
 
   // 1. Handler: Add Clinical Record Entry
   const handleAddClinicalRecord = (e) => {
     e.preventDefault()
     if (!updateDiagnosis.trim()) return
-    showToast('✓ Clinical record updated and appended to patient history.')
+    showToast('Clinical record updated and appended to patient history.')
   }
 
   // 2. Handler: Save Medical Record Upload
   const handleSaveMedicalRecord = (e) => {
     e.preventDefault()
     if (!medicalDocFile) {
-      showToast('⚠️ Please select a medical document to upload.')
+      showToast('Please select a medical document to upload.')
       return
     }
 
@@ -448,14 +473,14 @@ export default function PatientRecordPage() {
       ...labReportsList,
     ])
     setMedicalDocFile(null)
-    showToast('✓ Medical document saved to historical records.')
+    showToast('Medical document saved to historical records.')
   }
 
   // 3. Handler: Save Imaging Upload
   const handleSaveImaging = (e) => {
     e.preventDefault()
     if (!imagingFile) {
-      showToast('⚠️ Please select an imaging file to upload.')
+      showToast('Please select an imaging file to upload.')
       return
     }
 
@@ -469,7 +494,7 @@ export default function PatientRecordPage() {
       ...imagingList,
     ])
     setImagingFile(null)
-    showToast('✓ Imaging study uploaded and added to imaging archive.')
+    showToast('Imaging study uploaded and added to imaging archive.')
   }
 
   // 4. Handler: Add / Remove Medicines in Prescription Tab
@@ -498,7 +523,7 @@ export default function PatientRecordPage() {
 
   const handleRemoveMedicine = (id) => {
     if (prescribedMedicines.length === 1) {
-      showToast('⚠️ Prescription must contain at least one medicine.')
+      showToast('Prescription must contain at least one medicine.')
       return
     }
     setPrescribedMedicines(prescribedMedicines.filter((m) => m.id !== id))
@@ -507,16 +532,16 @@ export default function PatientRecordPage() {
   const handleSavePrescriptionOnly = () => {
     const validMeds = prescribedMedicines.filter((m) => m.name.trim())
     if (validMeds.length === 0) {
-      showToast('⚠️ Please specify at least one medication name.')
+      showToast('Please specify at least one medication name.')
       return
     }
-    showToast('✓ Prescription saved to patient records.')
+    showToast('Prescription saved to patient records.')
   }
 
   const handleGeneratePrescriptionPDF = () => {
     const validMeds = prescribedMedicines.filter((m) => m.name.trim())
     if (validMeds.length === 0) {
-      showToast('⚠️ Please specify at least one medication name before generating PDF.')
+      showToast('Please specify at least one medication name before generating PDF.')
       return
     }
     setShowPrintModal(true)
@@ -548,7 +573,7 @@ export default function PatientRecordPage() {
                   <div className="allergies-warning-wrap">
                     {patient.allergies.map((allergy) => (
                       <span key={allergy} className="allergy-warning-pill">
-                        ⚠ {allergy}
+                        {allergy}
                       </span>
                     ))}
                   </div>
@@ -850,7 +875,7 @@ export default function PatientRecordPage() {
               {/* Symptom Search Bar */}
               <div className="symptom-search-bar-wrap">
                 <div className="search-input-box">
-                  <span className="search-icon" aria-hidden="true">🔍</span>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="search-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                   <input
                     type="text"
                     className="symptom-filter-input"
@@ -911,7 +936,7 @@ export default function PatientRecordPage() {
               {/* Red Flags Alert Banner */}
               {activeRedFlags.length > 0 && (
                 <div className="red-flags-alert-card">
-                  <div className="red-flag-icon">⚠️</div>
+                  <div className="red-flag-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
                   <div className="red-flag-body">
                     <strong>RED FLAGS:</strong>
                     <p>
@@ -1183,77 +1208,196 @@ export default function PatientRecordPage() {
               <div className="ai-sidebar-header">
                 <div className="ai-sidebar-title-row">
                   <div className="ai-title-badge">
-                    <span className="ai-spark-icon">⚡</span>
-                    <h3>AI Clinical Suggestions</h3>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#824bee" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="ai-spark-icon">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    </svg>
+                    <h3>AI Clinical Decision Support</h3>
                   </div>
-                  <span className="ai-status-tag">AI-assisted guidance</span>
+                  <span className="ai-status-tag">Decision Support</span>
                 </div>
               </div>
 
               <div className="ai-sidebar-divider" />
 
-              {/* Structured Body */}
+              {/* Body: Empty / Loading / Result */}
               <div className="ai-sidebar-body">
-                {isSidebarAiLoading ? (
-                  <div className="ai-sidebar-loading-box">
-                    <div className="ai-pulse-spinner" />
-                    <span>Analyzing clinical findings & history...</span>
+                {/* 1. INITIAL EMPTY STATE */}
+                {aiAnalysisStatus === 'empty' && (
+                  <div className="ai-empty-state-card">
+                    <div className="ai-empty-icon-wrap">
+                      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#824bee" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                      </svg>
+                    </div>
+                    <h4 className="ai-empty-title">Context-Aware Guidance</h4>
+                    <p className="ai-empty-desc">
+                      Select patient symptoms and findings, then run analysis to synthesize clinical history, allergy safeguards, and considerations.
+                    </p>
+                    <button
+                      type="button"
+                      className="ai-primary-analyze-btn"
+                      onClick={handleRunAiAnalysis}
+                    >
+                      <span>Analyze with DiagNect AI</span>
+                      <span aria-hidden="true">→</span>
+                    </button>
                   </div>
-                ) : (
-                  <div className="ai-structured-content">
-                    {/* Likely Condition */}
-                    <div className="ai-chunk-section likely-condition-chunk">
-                      <div className="ai-chunk-header">
-                        <span className="ai-chunk-dot purple-dot" />
-                        <span className="ai-chunk-label">LIKELY CONDITION</span>
-                      </div>
-                      <div className="ai-condition-highlight-box">
-                        <p className="ai-condition-title">{aiClinicalGuidance.condition}</p>
+                )}
+
+                {/* 2. POLISHED LOADING STATE */}
+                {aiAnalysisStatus === 'loading' && (
+                  <div className="ai-loading-state-card">
+                    <div className="ai-loading-header">
+                      <div className="ai-pulse-spinner" />
+                      <h4>Analyzing patient context...</h4>
+                    </div>
+
+                    <div className="ai-loading-progress-bar">
+                      <div
+                        className="ai-loading-progress-fill"
+                        style={{ width: `${((aiLoadingStep + 1) / loadingSteps.length) * 100}%` }}
+                      />
+                    </div>
+
+                    <div className="ai-loading-steps-list">
+                      {loadingSteps.map((step, idx) => {
+                        const isDone = idx < aiLoadingStep
+                        const isCurrent = idx === aiLoadingStep
+                        return (
+                          <div
+                            key={step}
+                            className={`ai-loading-step-item ${isDone ? 'done' : ''} ${isCurrent ? 'active' : ''}`}
+                          >
+                            <span className="ai-step-indicator">
+                              {isDone ? (
+                                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              ) : (
+                                <span className="ai-step-dot" />
+                              )}
+                            </span>
+                            <span className="ai-step-label">{step}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. STRUCTURED RESULT STATE */}
+                {aiAnalysisStatus === 'result' && aiAnalysisResult && (
+                  <div className="ai-result-workspace">
+                    {/* Patient Context Chips */}
+                    <div className="ai-patient-context-section">
+                      <div className="ai-section-kicker">PATIENT CONTEXT</div>
+                      <div className="ai-context-chips-grid">
+                        <div className="ai-context-chip">
+                          <span className="chip-key">Medical history:</span>
+                          <span className="chip-val">{patient.chronicConditions?.join(', ') || 'Asthma'}</span>
+                        </div>
+                        <div className="ai-context-chip">
+                          <span className="chip-key">Allergies:</span>
+                          <span className="chip-val alert-val">{patient.allergies?.join(', ') || 'Penicillin'}</span>
+                        </div>
+                        <div className="ai-context-chip">
+                          <span className="chip-key">Current medication:</span>
+                          <span className="chip-val">Cetirizine 10mg</span>
+                        </div>
+                        <div className="ai-context-chip">
+                          <span className="chip-key">Previous visits:</span>
+                          <span className="chip-val">3 recorded</span>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Interpretation */}
+                    {/* Possible Clinical Pattern */}
+                    <div className="ai-chunk-section">
+                      <div className="ai-chunk-header">
+                        <span className="ai-chunk-dot purple-dot" />
+                        <span className="ai-chunk-label">POSSIBLE CLINICAL PATTERN</span>
+                      </div>
+                      <div className="ai-condition-highlight-box">
+                        <p className="ai-condition-title">{aiAnalysisResult.possiblePattern}</p>
+                      </div>
+                    </div>
+
+                    {/* Why this was suggested (Evidence Checklist) */}
                     <div className="ai-chunk-section">
                       <div className="ai-chunk-header">
                         <span className="ai-chunk-dot blue-dot" />
-                        <span className="ai-chunk-label">INTERPRETATION</span>
+                        <span className="ai-chunk-label">WHY THIS WAS SUGGESTED</span>
                       </div>
-                      <p className="ai-chunk-text">{aiClinicalGuidance.interpretation}</p>
+                      <div className="ai-evidence-checklist">
+                        {aiAnalysisResult.evidence.map((ev, i) => (
+                          <div key={i} className="ai-evidence-item">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#824bee" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                            <span>{ev}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
 
-                    {/* Recommendation */}
+                    {/* Red Flags Section */}
                     <div className="ai-chunk-section">
                       <div className="ai-chunk-header">
-                        <span className="ai-chunk-dot green-dot" />
-                        <span className="ai-chunk-label">RECOMMENDATION</span>
+                        <span className={`ai-chunk-dot ${aiAnalysisResult.redFlags.length > 0 ? 'red-dot' : 'green-dot'}`} />
+                        <span className="ai-chunk-label">SAFETY & RED FLAGS</span>
                       </div>
-                      <div className="ai-recommendation-box">
-                        <p className="ai-chunk-text">{aiClinicalGuidance.recommendation}</p>
+                      {aiAnalysisResult.redFlags.length === 0 ? (
+                        <div className="ai-red-flags-clean-box">
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                          <span>No immediate red flags identified from the available information.</span>
+                        </div>
+                      ) : (
+                        <div className="ai-red-flags-alert-box">
+                          <div className="red-flag-alert-header">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                              <line x1="12" y1="9" x2="12" y2="13" />
+                              <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                            <strong>Critical Findings Noted:</strong>
+                          </div>
+                          <p className="red-flag-list">
+                            {aiAnalysisResult.redFlags.join(', ')} — Prioritize targeted evaluation.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Clinical Considerations */}
+                    <div className="ai-chunk-section">
+                      <div className="ai-chunk-header">
+                        <span className="ai-chunk-dot indigo-dot" />
+                        <span className="ai-chunk-label">CLINICAL CONSIDERATIONS</span>
+                      </div>
+                      <div className="ai-considerations-box">
+                        <p className="ai-chunk-text">{aiAnalysisResult.clinicalConsiderations}</p>
                       </div>
                     </div>
+
+                    {/* Re-run Button */}
+                    <button
+                      type="button"
+                      className="ai-rerun-analysis-btn"
+                      onClick={handleRunAiAnalysis}
+                    >
+                      <span>Re-run Analysis</span>
+                      <span aria-hidden="true">→</span>
+                    </button>
                   </div>
                 )}
               </div>
 
-              {/* Footer CTA & Disclaimer */}
+              {/* Disclaimer */}
               <div className="ai-sidebar-footer">
-                <button
-                  type="button"
-                  className={'ai-rerun-analysis-btn ' + (isSidebarAiLoading ? 'loading' : '')}
-                  onClick={handleTriggerSidebarAiReanalyze}
-                  disabled={isSidebarAiLoading}
-                >
-                  {isSidebarAiLoading ? (
-                    <span>Running Analysis...</span>
-                  ) : (
-                    <>
-                      <span>Re-run Analysis</span>
-                      <b aria-hidden="true">→</b>
-                    </>
-                  )}
-                </button>
                 <p className="ai-sidebar-disclaimer-text">
-                  AI decision support only. Confirm with clinician.
+                  AI decision support only. Final assessment remains with the clinician.
                 </p>
               </div>
             </div>
@@ -1268,7 +1412,7 @@ export default function PatientRecordPage() {
         <div className="dedicated-prescription-workspace">
           {/* Prominent Allergy Safeguard Alert */}
           <div className="prescription-allergy-safeguard">
-            <div className="safeguard-icon">⚠️</div>
+            <div className="safeguard-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
             <div className="safeguard-text">
               <strong>Critical Patient Allergies: {patient.allergies.join(', ')}</strong>
               <p>Review patient allergies and current medications before prescribing. Strictly avoid NSAIDs / Aspirin & Codeine compounds.</p>
@@ -1556,11 +1700,11 @@ export default function PatientRecordPage() {
 
           <div className="consent-timer-group">
             <div className="consent-status-badge">
-              <span className="consent-check-icon">✓</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
               <span>Patient consented</span>
             </div>
             <div className="access-expiry-box">
-              <span className="timer-icon">⏳</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               <span>Access expires in <strong>{formatTimer(remainingSeconds)}</strong></span>
             </div>
           </div>

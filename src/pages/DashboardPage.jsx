@@ -1,3 +1,4 @@
+import ReactDOM from 'react-dom'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import * as QRCode from 'qrcode'
@@ -6,11 +7,17 @@ import { useAuth } from '../context/AuthContext'
 
 function getGreeting(name) {
   const hour = new Date().getHours()
-  let timeOfDay = 'morning'
-  if (hour >= 12 && hour < 17) timeOfDay = 'afternoon'
-  else if (hour >= 17) timeOfDay = 'evening'
+  const docName = name || 'Doctor'
   
-  return `Good ${timeOfDay}, ${name || 'Doctor'}`
+  if (hour >= 5 && hour < 11) {
+    return `Good morning, ${docName}`
+  } else if (hour >= 11 && hour < 16) {
+    return `Good afternoon, ${docName}`
+  } else if (hour >= 16 && hour < 19) {
+    return `Good evening, ${docName}`
+  } else {
+    return `Hello, ${docName}`
+  }
 }
 
 export default function DashboardPage() {
@@ -182,10 +189,13 @@ export default function DashboardPage() {
     setIsScanningSimulation(true)
     setTimeout(() => {
       setIsScanningSimulation(false)
+      if (!patients.some((p) => p.id === incomingPatientData.id)) {
+        setPatients([incomingPatientData, ...patients])
+      }
       setShowQRModal(false)
       document.body.style.overflow = ''
       navigate('/patient-record')
-    }, 600)
+    }, 850)
   }
 
   return (
@@ -231,7 +241,7 @@ export default function DashboardPage() {
         {/* New Patient Notification Toast */}
         {newPatientAddedNotification && (
           <div className="new-patient-toast">
-            <span className="toast-icon">⚡</span>
+            
             <span>{newPatientAddedNotification}</span>
             <button
               type="button"
@@ -247,7 +257,7 @@ export default function DashboardPage() {
         <section className="dashboard-hero-banner">
           <div className="banner-text">
             <div className="verification-status-pill">
-              <span className="verified-check">✓</span>
+              
               <span>Identity Verified Doctor (Aadhaar Secure)</span>
             </div>
             <h1>{getGreeting(activeDoctor.fullName)}</h1>
@@ -376,7 +386,7 @@ export default function DashboardPage() {
 
                 {patient.aiFlag && (
                   <div className={`ai-flag-banner severity-${patient.flagSeverity}`}>
-                    <div className="ai-flag-icon">⚡</div>
+                    <div className="ai-flag-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
                     <div>
                       <strong>DiagNect Smart AI Alert:</strong>
                       <p>{patient.aiFlag}</p>
@@ -403,95 +413,108 @@ export default function DashboardPage() {
       </main>
 
       {/* Doctor QR Code Modal for Patient to Scan (Centered & No-Scroll) */}
-      {showQRModal && (
-        <div className="modal-backdrop" onClick={() => setShowQRModal(false)}>
-          <div className="scan-modal qr-generator-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <h3>Patient Access QR Code</h3>
-                <p className="modal-sub">Ask the patient to scan this QR code using their DiagNect app</p>
+      {showQRModal &&
+        ReactDOM.createPortal(
+          <div
+            className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center"
+            onClick={() => setShowQRModal(false)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="scan-modal qr-generator-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <div>
+                  <h3>Patient Access QR Code</h3>
+                  <p className="modal-sub">Ask the patient to scan this QR code using their DiagNect app</p>
+                </div>
+                <button
+                  type="button"
+                  className="close-modal-btn"
+                  onClick={() => setShowQRModal(false)}
+                  title="Close"
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                type="button"
-                className="close-modal-btn"
-                onClick={() => setShowQRModal(false)}
-                title="Close"
-              >
-                ✕
-              </button>
-            </div>
 
-            <div className="doctor-qr-display-container">
-              <div className="qr-code-card">
-                <div className="qr-pulse-wrapper">
-                  {qrCode ? (
-                    <img
-                      src={qrCode}
-                      alt="qr code for patient"
-                      className="generated-qr-image"
-                    />
-                  ) : (
-                    <canvas ref={canvasRef} className="generated-qr-canvas" />
-                  )}
-                  {isScanningSimulation && (
-                    <div className="qr-laser-scanner-line" />
+              <div className="doctor-qr-display-container">
+                <div className="qr-code-card">
+                  <div className="qr-pulse-wrapper">
+                    {qrCode ? (
+                      <img
+                        src={qrCode}
+                        alt="qr code for patient"
+                        className="generated-qr-image"
+                      />
+                    ) : (
+                      <canvas ref={canvasRef} className="generated-qr-canvas" />
+                    )}
+                    {isScanningSimulation && (
+                      <div className="qr-laser-scanner-line" />
+                    )}
+                  </div>
+
+                  <div className="qr-doctor-tag">
+                    <strong>{activeDoctor.fullName}</strong>
+                    <span>{activeDoctor.hospitalClinic}</span>
+                  </div>
+
+                  {sessionToken && (
+                    <div className="qr-token-pill">
+                      <span>Token: <code>{sessionToken.slice(0, 10)}...</code></span>
+                      <button
+                        type="button"
+                        className="refresh-qr-btn"
+                        onClick={generateQR}
+                        title="Generate a new QR token"
+                      >
+                        Refresh
+                      </button>
+                    </div>
                   )}
                 </div>
 
-                <div className="qr-doctor-tag">
-                  <strong>{activeDoctor.fullName}</strong>
-                  <span>{activeDoctor.hospitalClinic}</span>
-                </div>
+                <div className="qr-session-info-panel">
+                  <div className="session-status-row">
+                    <span className="live-pulse-dot" />
+                    <span>Live Secure Consultation Session (256-bit Encrypted)</span>
+                  </div>
+                  <p className="session-explanation">
+                    Once the patient scans this code with DiagNect, their full medical history, active prescriptions, and critical allergy flags will instantly synchronize to your screen.
+                  </p>
 
-                {sessionToken && (
-                  <div className="qr-token-pill">
-                    <span>Token: <code>{sessionToken.slice(0, 10)}...</code></span>
+                  <div className="simulation-trigger-wrap">
                     <button
                       type="button"
-                      className="refresh-qr-btn"
-                      onClick={generateQR}
-                      title="Generate a new QR token"
+                      className="simulate-scan-action-btn"
+                      onClick={handleSimulatePatientScan}
+                      disabled={isScanningSimulation}
                     >
-                      🔄 Refresh
+                      {isScanningSimulation ? (
+                        <>
+                          <span
+                            className="ai-pulse-spinner"
+                            style={{
+                              width: '14px',
+                              height: '14px',
+                              borderWidth: '2px',
+                              marginRight: '6px',
+                              display: 'inline-block',
+                            }}
+                          />
+                          <span>Syncing Patient Medical Records...</span>
+                        </>
+                      ) : (
+                        <span>Simulate Patient Scan</span>
+                      )}
                     </button>
                   </div>
-                )}
-              </div>
-
-              <div className="qr-session-info-panel">
-                <div className="session-status-row">
-                  <span className="live-pulse-dot" />
-                  <span>Live Secure Consultation Session (256-bit Encrypted)</span>
-                </div>
-                <p className="session-explanation">
-                  Once the patient scans this code with DiagNect, their full medical history, active prescriptions, and critical allergy flags will instantly synchronize to your screen.
-                </p>
-
-                <div className="simulation-trigger-wrap">
-                  <button
-                    type="button"
-                    className="simulate-scan-action-btn"
-                    onClick={handleSimulatePatientScan}
-                    disabled={isScanningSimulation}
-                  >
-                    {isScanningSimulation ? (
-                      <>
-                        <span className="spinner-icon">⏳</span>
-                        <span>Syncing Patient Medical Records...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>📱</span>
-                        <span>Simulate Patient Scan</span>
-                      </>
-                    )}
-                  </button>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

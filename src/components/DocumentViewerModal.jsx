@@ -76,7 +76,7 @@ export default function DocumentViewerModal({
   }
 
   const modalContent = (
-    <div className="pdf-overlay" onClick={onClose} role="dialog" aria-modal="true">
+    <div className="pdf-overlay fixed inset-0 z-50 flex items-center justify-center" onClick={onClose} role="dialog" aria-modal="true">
       <div className="pdf-modal" onClick={(e) => e.stopPropagation()}>
         {/* 1. Header (Fixed Height, flex: 0 0 auto) */}
         <header className="pdf-header">
@@ -146,7 +146,7 @@ export default function DocumentViewerModal({
               {/* Allergy Banner if patient has allergies */}
               {patient?.allergies && patient.allergies.length > 0 && (
                 <div className="a4-allergy-alert-box">
-                  <span className="alert-flag">⚠️ KNOWN DRUG ALLERGIES:</span>
+                  <span className="alert-flag">KNOWN DRUG ALLERGIES:</span>
                   <span>{patient.allergies.join(', ')}</span>
                   <span className="contra-note">(Strictly Contraindicated)</span>
                 </div>
@@ -221,7 +221,7 @@ export default function DocumentViewerModal({
                       </div>
                       <div className="doc-meta-item">
                         <span>PACS Archive Status:</span>
-                        <strong style={{ color: '#059669' }}>Archived & Verified ✓</strong>
+                        <strong style={{ color: '#059669' }}>Archived & Verified</strong>
                       </div>
                     </div>
                   </div>
@@ -256,7 +256,7 @@ export default function DocumentViewerModal({
                       </div>
                       <div className="doc-meta-item">
                         <span>Verification:</span>
-                        <strong style={{ color: '#059669' }}>Certified by Clinical Pathologist ✓</strong>
+                        <strong style={{ color: '#059669' }}>Certified by Clinical Pathologist</strong>
                       </div>
                     </div>
                   </div>
@@ -273,7 +273,7 @@ export default function DocumentViewerModal({
               {/* Digital Authentication & Doctor Signature */}
               <div className="a4-footer-signature-area">
                 <div className="a4-qr-seal">
-                  <span className="seal-badge">🔒 DiagNect Verified Health Record</span>
+                  <span className="seal-badge">DiagNect Verified Health Record</span>
                   <span className="seal-token-sub">UUID: {Date.now().toString(36).toUpperCase()}-VERIFIED</span>
                 </div>
 
@@ -299,7 +299,7 @@ export default function DocumentViewerModal({
               className="footer-btn secondary-btn"
               onClick={handlePrint}
             >
-              🖨️ Print
+              Print
             </button>
 
             <button
@@ -308,7 +308,7 @@ export default function DocumentViewerModal({
               onClick={handleDownloadPDF}
               disabled={isGeneratingPdf}
             >
-              {isGeneratingPdf ? 'Generating PDF...' : '⬇ Download PDF'}
+              {isGeneratingPdf ? 'Generating PDF...' : 'Download PDF'}
             </button>
           </div>
         </footer>
