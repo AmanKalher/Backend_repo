@@ -26,7 +26,7 @@ export default function LoginPage() {
           <button className="provider-button"><b>G</b> Continue with Google</button>
           <button className="provider-button"><b>⊞</b> Hospital SSO</button>
           <p className="signup-copy">
-            Don't have an account? <Link to="/signup">Request access</Link>
+            Don't have an account? <Link to="/signup">Sign up</Link>
           </p>
         </div>
       </section>

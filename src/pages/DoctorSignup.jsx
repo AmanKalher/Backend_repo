@@ -8,9 +8,9 @@ export default function DoctorSignup() {
     // States
     const [aadhaarNumber, setAadhaarNumber] = useState('');
     const [medicalRegNumber, setMedicalRegNumber] = useState('');
-    // --> NEW: State to hold the uploaded file
     const [medicalDocument, setMedicalDocument] = useState(null);
-
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -23,11 +23,13 @@ export default function DoctorSignup() {
         } else {
             navigate('/');
         }
+        setError(''); // Clear errors when going back
     };
 
     const handleAadhaarSubmit = (event) => {
         event.preventDefault();
         setError('');
+
         const isValidAadhaar = /^\d{12}$/.test(aadhaarNumber);
 
         if (!isValidAadhaar) {
@@ -38,7 +40,6 @@ export default function DoctorSignup() {
             setError('Please enter your Medical Registration Number.');
             return;
         }
-        // --> NEW: Check if they uploaded a document
         if (!medicalDocument) {
             setError('Please upload your Medical Registration Document.');
             return;
@@ -48,13 +49,46 @@ export default function DoctorSignup() {
 
     const handleOtpSubmit = (event) => {
         event.preventDefault();
+        setError('');
         setStep(3);
     };
 
-    const handleFinalSubmit = (event) => {
+    const handleFinalSubmit = async (event) => {
         event.preventDefault();
-        // Final check placeholder!
-        alert(`Ready to send to Backend!\nEmail: ${email}\nDocument attached: ${medicalDocument.name}`);
+        setError('');
+
+        try {
+            // ---> TEMPORARY CODE FOR YOUR FRIEND STARTS HERE <---
+            // alert("Temporary Mock: Doctor Account Created!");
+            // navigate('/');
+            // return;
+            // ---> TEMPORARY CODE ENDS HERE <---
+
+            const response = await fetch('http://localhost:4000/register/doctor', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    firstName: firstName,
+                    lastName: lastName,
+                    email: email,
+                    password: password,
+                    registrationNumber: medicalRegNumber
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                alert('Doctor account created successfully!');
+                navigate('/');
+            } else {
+                setError(data.message || 'Failed to create account.');
+            }
+        } catch (err) {
+            setError('Could not connect to the server. Is the backend running?');
+        }
     };
 
     return (
@@ -107,7 +141,6 @@ export default function DoctorSignup() {
                                 onChange={(e) => setMedicalRegNumber(e.target.value)}
                             />
 
-                            {/* --> NEW: File Upload Input */}
                             <label htmlFor="medicalDoc" style={{ marginTop: '15px', display: 'block' }}>
                                 Upload Medical Registration Certificate (PDF/Image)
                             </label>
@@ -144,6 +177,30 @@ export default function DoctorSignup() {
 
                     {step === 3 && (
                         <form onSubmit={handleFinalSubmit}>
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label htmlFor="firstName">First Name</label>
+                                    <input
+                                        id="firstName"
+                                        type="text"
+                                        placeholder="First Name"
+                                        value={firstName}
+                                        onChange={(e) => setFirstName(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label htmlFor="lastName">Last Name</label>
+                                    <input
+                                        id="lastName"
+                                        type="text"
+                                        placeholder="Last Name"
+                                        value={lastName}
+                                        onChange={(e) => setLastName(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
                             <label htmlFor="email">Email Address</label>
                             <input
                                 id="email"
@@ -152,9 +209,10 @@ export default function DoctorSignup() {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
+                                style={{ marginBottom: '15px' }}
                             />
 
-                            <label htmlFor="password" style={{ marginTop: '15px', display: 'block' }}>Password</label>
+                            <label htmlFor="password" style={{ display: 'block' }}>Password</label>
                             <input
                                 id="password"
                                 type="password"
@@ -164,6 +222,8 @@ export default function DoctorSignup() {
                                 required
                                 style={{ marginBottom: '15px' }}
                             />
+
+                            {error && <p style={{ color: 'red', fontSize: '14px', marginTop: '4px', marginBottom: '10px' }}>{error}</p>}
 
                             <button type="submit" className="submit-button">
                                 Create Doctor Account
