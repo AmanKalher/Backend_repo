@@ -8,6 +8,7 @@ import SmoothTab from '../components/SmoothTab'
 import FileUpload from '../components/FileUpload'
 import PrescriptionPreviewModal from '../components/PrescriptionPreviewModal'
 import { useAuth } from '../context/AuthContext'
+import aiService, { RED_FLAG_SYMPTOMS } from '../services/aiService'
 
 const symptomDatabase = [
   {
@@ -36,98 +37,13 @@ const symptomDatabase = [
   },
 ]
 
-const redFlagSymptomsList = [
-  'Chest pain',
-  'Shortness of breath',
-  'Fainting',
-  'Confusion',
-  'Seizure',
-  'Blood in urine',
-]
+const redFlagSymptomsList = RED_FLAG_SYMPTOMS
 
 const recordTabs = {
   '/prescriptions': { name: 'Prescriptions' },
   '/labs': { name: 'Lab Reports' },
   '/imaging': { name: 'Imaging' },
   '/vaccinations': { name: 'Vaccinations' },
-}
-
-
-// ======================================================
-// DIAGNECT AI CLINICAL DECISION SUPPORT SERVICE (FRONTEND INTERFACE)
-// Can be seamlessly replaced with: POST /api/ai/analyze
-// ======================================================
-function analyzePatientContext({ selectedSymptoms = [], patient = {} }) {
-  const lowerSelected = (selectedSymptoms || []).map((s) => s.toLowerCase())
-  const hasRespiratory = lowerSelected.some((s) =>
-    ['cough', 'shortness of breath', 'wheezing', 'chest tightness', 'sore throat', 'nasal congestion'].includes(s)
-  )
-  const hasCardiac = lowerSelected.some((s) =>
-    ['chest pain', 'palpitations', 'dizziness', 'fainting', 'leg swelling'].includes(s)
-  )
-  const hasConstitutional = lowerSelected.some((s) =>
-    ['fever', 'chills', 'fatigue', 'weakness', 'loss of appetite'].includes(s)
-  )
-  const hasGI = lowerSelected.some((s) =>
-    ['nausea', 'vomiting', 'abdominal pain', 'diarrhea', 'constipation'].includes(s)
-  )
-  const hasNeuro = lowerSelected.some((s) =>
-    ['headache', 'confusion', 'numbness', 'seizure'].includes(s)
-  )
-  const hasUrinary = lowerSelected.some((s) =>
-    ['painful urination', 'increased frequency', 'blood in urine', 'flank pain'].includes(s)
-  )
-
-  // Identify Active Red Flags
-  const detectedRedFlags = (selectedSymptoms || []).filter((s) =>
-    ['Chest pain', 'Shortness of breath', 'Fainting', 'Confusion', 'Seizure', 'Blood in urine'].includes(s)
-  )
-
-  // Build Evidence list for "Why this was suggested"
-  const evidenceList = [...(selectedSymptoms || [])]
-  if (patient.chronicConditions && patient.chronicConditions.length > 0) {
-    patient.chronicConditions.forEach((c) => {
-      if (!evidenceList.includes(`Previous ${c.toLowerCase()} history`)) {
-        evidenceList.push(`Previous ${c.toLowerCase()} history`)
-      }
-    })
-  }
-
-  let pattern = 'Multi-system presentation with non-specific symptom cluster'
-  let considerations = 'Correlate clinical findings with patient history and baseline diagnostics. Monitor symptom trajectory and vital signs.'
-
-  if (hasCardiac) {
-    pattern = 'Potential cardiopulmonary or thoracic symptom pattern'
-    considerations = 'Consider evaluating urgent 12-lead ECG, continuous SpO2 monitoring, and targeted cardiopulmonary examination. Maintain vigilance regarding recorded medication allergies.'
-  } else if (hasRespiratory && patient.chronicConditions && patient.chronicConditions.includes('Asthma')) {
-    pattern = 'Respiratory symptoms with possible bronchospasm'
-    considerations = 'Consider evaluating asthma exacerbation versus infectious causes. Review respiratory status, auscultation findings, and peak flow if indicated.'
-  } else if (hasRespiratory) {
-    pattern = 'Acute upper or lower respiratory inflammatory pattern'
-    considerations = 'Evaluate airway patency, chest auscultation for crackles/wheezes, and assess hydration and fever trajectory.'
-  } else if (hasConstitutional) {
-    pattern = 'Systemic infectious / febrile prodrome pattern'
-    considerations = 'Assess temperature curve, hydration status, and consider basic inflammatory markers (CBC/CRP) if symptoms persist beyond expected viral timeframe.'
-  } else if (hasGI) {
-    pattern = 'Gastrointestinal dysregulation / irritation pattern'
-    considerations = 'Assess fluid and electrolyte balance, review current mucosal protective regimen, and rule out infectious or inflammatory etiology.'
-  } else if (hasNeuro) {
-    pattern = 'Neurological / cephalalgic symptom pattern'
-    considerations = 'Perform focal neurological examination, check blood pressure, and assess for meningeal or secondary febrile signs.'
-  } else if (hasUrinary) {
-    pattern = 'Genitourinary / renal irritative pattern'
-    considerations = 'Consider urinalysis with microscopy and culture before initiating empirical antimicrobial therapy.'
-  } else if (selectedSymptoms.length > 0) {
-    pattern = 'Non-specific multi-system symptom cluster'
-    considerations = 'Review chronological progression of findings against baseline clinical records.'
-  }
-
-  return {
-    possiblePattern: pattern,
-    evidence: evidenceList.length > 0 ? evidenceList : ['Selected clinical findings'],
-    redFlags: detectedRedFlags,
-    clinicalConsiderations: considerations,
-  }
 }
 
 export default function PatientRecordPage() {
@@ -414,9 +330,10 @@ export default function PatientRecordPage() {
 
   // Structured AI Clinical Guidance Generator for the Sticky Live Assistant
   // AI Clinical Decision Support Workspace State
-  const [aiAnalysisStatus, setAiAnalysisStatus] = useState('empty') // 'empty' | 'loading' | 'result'
+  const [aiAnalysisStatus, setAiAnalysisStatus] = useState('empty') // 'empty' | 'loading' | 'result' | 'error'
   const [aiLoadingStep, setAiLoadingStep] = useState(0)
   const [aiAnalysisResult, setAiAnalysisResult] = useState(null)
+  const [aiErrorMessage, setAiErrorMessage] = useState('')
 
   const loadingSteps = [
     'Reviewing selected symptoms',
@@ -425,26 +342,54 @@ export default function PatientRecordPage() {
     'Generating clinical considerations',
   ]
 
-  const handleRunAiAnalysis = () => {
+  const handleRunAiAnalysis = async () => {
     setAiAnalysisStatus('loading')
     setAiLoadingStep(0)
+    setAiErrorMessage('')
 
-    // Progressive loading sequence
-    const t1 = setTimeout(() => setAiLoadingStep(1), 350)
-    const t2 = setTimeout(() => setAiLoadingStep(2), 700)
-    const t3 = setTimeout(() => setAiLoadingStep(3), 1050)
-    const t4 = setTimeout(() => {
-      const result = analyzePatientContext({ selectedSymptoms, patient })
+    // Progressive loading sequence for smooth visual pacing
+    const t1 = setTimeout(() => setAiLoadingStep(1), 300)
+    const t2 = setTimeout(() => setAiLoadingStep(2), 600)
+    const t3 = setTimeout(() => setAiLoadingStep(3), 900)
+
+    try {
+      // 1. Prepare structured clinical request payload
+      const requestPayload = {
+        patientId: patient.patientId,
+        symptoms: selectedSymptoms,
+        clinicalFindings: {
+          chiefComplaint: patient.reasonForVisit,
+          vitals: patient.vitals,
+          preliminaryDiagnosis: updateDiagnosis,
+          clinicalNotes: updateNotes,
+        },
+        patientContext: {
+          age: patient.age,
+          sex: patient.gender,
+          bloodGroup: patient.bloodGroup,
+          chronicConditions: patient.chronicConditions,
+          pastMedicalHistory: patient.pastMedicalHistory,
+          allergies: patient.allergies,
+          currentMedications: patient.medications,
+          previousProcedures: patient.previousProcedures,
+          familyHistory: patient.familyHistory,
+        },
+      }
+
+      // 2. Call frontend AI service layer
+      const result = await aiService.analyzeSymptoms(requestPayload)
       setAiAnalysisResult(result)
       setAiAnalysisStatus('result')
       showToast('AI clinical considerations updated based on patient context.')
-    }, 1400)
-
-    return () => {
+    } catch (err) {
+      console.error('AI Analysis request failed:', err)
+      setAiErrorMessage(err.message || 'Unable to complete AI analysis. Please try again.')
+      setAiAnalysisStatus('error')
+      showToast('AI analysis failed. Please retry.')
+    } finally {
       clearTimeout(t1)
       clearTimeout(t2)
       clearTimeout(t3)
-      clearTimeout(t4)
     }
   }
 
@@ -1389,6 +1334,31 @@ export default function PatientRecordPage() {
                     >
                       <span>Re-run Analysis</span>
                       <span aria-hidden="true">→</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* 4. ERROR STATE */}
+                {aiAnalysisStatus === 'error' && (
+                  <div className="ai-empty-state-card" style={{ borderColor: 'rgba(220, 38, 38, 0.25)' }}>
+                    <div className="ai-empty-icon-wrap" style={{ background: 'rgba(220, 38, 38, 0.08)', color: '#dc2626' }}>
+                      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                    </div>
+                    <h4 className="ai-empty-title" style={{ color: '#dc2626' }}>Analysis Unavailable</h4>
+                    <p className="ai-empty-desc">
+                      {aiErrorMessage || 'Unable to connect to AI analysis service. Please verify your connection and retry.'}
+                    </p>
+                    <button
+                      type="button"
+                      className="ai-primary-analyze-btn"
+                      onClick={handleRunAiAnalysis}
+                    >
+                      <span>Retry Analysis</span>
+                      <span aria-hidden="true">↻</span>
                     </button>
                   </div>
                 )}
