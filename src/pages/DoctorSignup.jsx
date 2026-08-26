@@ -8,6 +8,9 @@ export default function DoctorSignup() {
     // States
     const [aadhaarNumber, setAadhaarNumber] = useState('');
     const [medicalRegNumber, setMedicalRegNumber] = useState('');
+    // --> NEW: State to hold the uploaded file
+    const [medicalDocument, setMedicalDocument] = useState(null);
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -35,18 +38,23 @@ export default function DoctorSignup() {
             setError('Please enter your Medical Registration Number.');
             return;
         }
+        // --> NEW: Check if they uploaded a document
+        if (!medicalDocument) {
+            setError('Please upload your Medical Registration Document.');
+            return;
+        }
         setStep(2);
     };
 
     const handleOtpSubmit = (event) => {
         event.preventDefault();
-        setStep(3); // Move to final step
+        setStep(3);
     };
 
     const handleFinalSubmit = (event) => {
         event.preventDefault();
-        // This is a placeholder alert until Pratap gives us the backend URL!
-        alert(`Ready to send to Backend!\nEmail: ${email}\nMedical No: ${medicalRegNumber}`);
+        // Final check placeholder!
+        alert(`Ready to send to Backend!\nEmail: ${email}\nDocument attached: ${medicalDocument.name}`);
     };
 
     return (
@@ -97,6 +105,18 @@ export default function DoctorSignup() {
                                 placeholder="e.g., DMC-12345"
                                 value={medicalRegNumber}
                                 onChange={(e) => setMedicalRegNumber(e.target.value)}
+                            />
+
+                            {/* --> NEW: File Upload Input */}
+                            <label htmlFor="medicalDoc" style={{ marginTop: '15px', display: 'block' }}>
+                                Upload Medical Registration Certificate (PDF/Image)
+                            </label>
+                            <input
+                                id="medicalDoc"
+                                type="file"
+                                accept=".pdf, image/jpeg, image/png"
+                                onChange={(e) => setMedicalDocument(e.target.files[0])}
+                                style={{ marginTop: '5px', marginBottom: '10px' }}
                             />
 
                             {error && <p style={{ color: 'red', fontSize: '14px', marginTop: '4px', marginBottom: '10px' }}>{error}</p>}
