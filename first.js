@@ -988,8 +988,22 @@ app.get("/audit-logs", authenticateToken, async (req, res) => {
         res.status(500).json({ message: "Failed to fetch audit logs", error: error.message });
     }
 });
-
-
+// ============================================================
+// AI CLINICAL DECISION SUPPORT ENDPOINT
+// ============================================================
+app.post(["/api/ai/analyze", "/ai/analyze"], async (req, res) => {
+    try {
+        const { analyzeClinicalData } = await import("./services/ai/analyzer.js");
+        const analysis = await analyzeClinicalData(req.body);
+        return res.json(analysis);
+    } catch (error) {
+        console.error("AI Analysis error:", error);
+        return res.status(500).json({ 
+            message: "Failed to perform AI clinical analysis", 
+            error: error.message 
+        });
+    }
+});
 // ============================================================
 // START SERVER
 // ============================================================
