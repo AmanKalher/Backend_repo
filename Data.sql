@@ -206,6 +206,10 @@ CREATE TABLE doctors (
 
     hospital_id UUID,
 
+    certificate_url VARCHAR(500),
+
+    qualification VARCHAR(100),
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -1,3 +1,6 @@
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+
 const { Pool } = require("pg");
 require("dotenv").config();
 
@@ -9,12 +12,12 @@ const connectionConfig = process.env.DATABASE_URL
     : {
           host: process.env.DB_HOST || process.env.PGHOST || "localhost",
           port: parseInt(process.env.DB_PORT || process.env.PGPORT || "5432", 10),
-          database: process.env.DB_NAME || process.env.PGDATABASE || "diagnect_db",
+          database: process.env.DB_NAME || process.env.PGDATABASE || "medtech_db",
           user: process.env.DB_USER || process.env.PGUSER || "postgres",
-          password: process.env.DB_PASSWORD || process.env.PGPASSWORD || "postgres",
+          password: String(process.env.DB_PASSWORD || process.env.PGPASSWORD || "postgres"),
           max: 20,
           idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 2000
+          connectionTimeoutMillis: 5000
       };
 
 const pool = new Pool(connectionConfig);
@@ -27,7 +30,10 @@ pool.on("error", (err) => {
     console.error("Unexpected error on idle PostgreSQL client", err);
 });
 
-module.exports = {
+export const query = (text, params) => pool.query(text, params);
+export const getClient = () => pool.connect();
+export { pool };
+export default {
     query: (text, params) => pool.query(text, params),
     getClient: () => pool.connect(),
     pool
